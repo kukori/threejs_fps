@@ -28,7 +28,7 @@ renderer.setSize(sizes.width, sizes.height)
 
 const mainCamera = new THREE.PerspectiveCamera(60, sizes.width/sizes.height, 0.1, 100)
 
-const scene = new FPSScene()
+const scene = new FPSScene(mainCamera)
 scene.initialze()
 
 function tick() 
