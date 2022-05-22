@@ -1,8 +1,7 @@
 import * as THREE from 'three'
-
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader'
 import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader'
-
+import Bullet from './Bullet'
 
 export default class FPSScene extends THREE.Scene
 {
@@ -11,7 +10,10 @@ export default class FPSScene extends THREE.Scene
     private readonly camera: THREE.PerspectiveCamera
     private readonly keyDown = new Set<string>()
     private blaster?: THREE.Group
-    private directionalVector = new THREE.Vector3()
+    private directionVector = new THREE.Vector3()
+    private bulletMtl?: MTLLoader.MaterialCreator
+    private bullets: Bullet[] = []
+    private targets: THREE.Group[] = []
 
     constructor(camera: THREE.PerspectiveCamera) 
     {
@@ -24,6 +26,9 @@ export default class FPSScene extends THREE.Scene
     {
         const tartgetMtl = await this.mtlLoader.loadAsync('assets/targetA.mtl')
         tartgetMtl.preload()
+
+        this.bulletMtl = await this.mtlLoader.loadAsync('assets/foamBulletB.mtl')
+        this.bulletMtl.preload()
 
         const target1 = await this.createTarget(tartgetMtl)
         target1.position.x = -1
@@ -42,6 +47,7 @@ export default class FPSScene extends THREE.Scene
         target4.position.z = -3
 
         this.add(target1, target2, target3, target4)
+        this.targets.push(target1, target2, target3, target4)
 
         this.blaster = await this.createBlaster()
         this.add(this.blaster)
@@ -67,6 +73,10 @@ export default class FPSScene extends THREE.Scene
 
     private handleKeyUp = (event: KeyboardEvent) => {
         this.keyDown.delete(event.key.toLowerCase())
+
+        if(event.key === ' ') {
+            this.createBullet()
+        }
     }
 
     private updateInput() 
@@ -83,7 +93,7 @@ export default class FPSScene extends THREE.Scene
             }
         }
 
-        const dir = this.directionalVector
+        const dir = this.directionVector
         this.camera.getWorldDirection(dir)
         const speed = 0.1
 
@@ -127,9 +137,81 @@ export default class FPSScene extends THREE.Scene
         return modelRoot
     }
 
+    private async createBullet()
+    {
+        if(!this.blaster) return
+
+        if(this.bulletMtl) {
+            this.objLoader.setMaterials(this.bulletMtl)
+        }
+
+        const bulletModel = await this.objLoader.loadAsync('assets/foamBulletB.obj')
+
+        this.camera.getWorldDirection(this.directionVector)
+
+        // axis aligned boundin box
+        const aabb = new THREE.Box3().setFromObject(this.blaster)
+        const size = aabb.getSize(new THREE.Vector3())
+
+        const vector = this.blaster.position.clone()
+        vector.y += 0.06
+
+        // half length of the blaster from the center of the blaster
+        bulletModel.position.add(
+            vector.add(this.directionVector.clone().multiplyScalar(size.z * 0.5))
+        )
+
+        // rotate children to match gun for simplicity
+		bulletModel.children.forEach(child => child.rotateX(Math.PI * -0.5))
+
+		// use the same rotation as as the gun
+		bulletModel.rotation.copy(this.blaster.rotation)
+
+        this.add(bulletModel)
+
+        const b = new Bullet(bulletModel)
+		b.setVelocity(
+			this.directionVector.x * 0.2,
+			this.directionVector.y * 0.2,
+			this.directionVector.z * 0.2
+		)
+
+        this.bullets.push(b)
+    }
+
+    private updateBullets()
+	{
+		for (let i = 0; i < this.bullets.length; ++i) {
+			const b = this.bullets[i]
+			b.update()
+
+			if (b.shouldRemove){
+				this.remove(b.group)
+				this.bullets.splice(i, 1)
+				i--
+			} else {
+				for (let j = 0; j < this.targets.length; ++j) {
+					const target = this.targets[j]
+
+					if (target.position.distanceToSquared(b.group.position) < 0.05) {
+						this.remove(b.group)
+						this.bullets.splice(i, 1)
+						i--
+
+						target.visible = false
+						setTimeout(() => {
+							target.visible = true
+						}, 1000)
+					}
+				}
+			}
+		}
+	}
+
     update()
     {
         this.updateInput()
+        this.updateBullets()
     }
 
 }
